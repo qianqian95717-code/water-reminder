@@ -1,227 +1,286 @@
 """
-💧 喝水提醒小工具 v2
-- 每隔1小时从左上角弹出可爱水杯
-- 不喝水 → 每5秒变大，直到铺满屏幕
-- 点击"我喝了！"→ 消失，1小时后再来
+💧 喝水提醒小工具 v4
 """
 
 import tkinter as tk
 import math
+import random
 
-# ══════════════════════════════════════
-# 配置（想改就改这里）
-# ══════════════════════════════════════
-REMIND_INTERVAL = 60 * 60   # 提醒间隔：3600秒=1小时（测试用改成10）
-GROW_INTERVAL   = 5         # 多少秒变大一次
-GROW_STEP       = 0.08      # 每次增大幅度（相对屏幕宽度）
-INIT_FRAC       = 0.20      # 初始大小（屏幕宽度的20%）
+REMIND_INTERVAL = 60 * 60
+GROW_INTERVAL   = 5
+STEPS           = 5
+
+BG_COLOR    = "#E8F6FF"
+CUP_BODY    = "#AEE4FF"
+CUP_WATER   = "#5BB8F5"
+CUP_OUTLINE = "#5BB8F5"
+CUP_STRAW   = "#FF9EAD"
+TEXT_TITLE  = "#2C7FC0"
+TEXT_SUB    = "#6BB8E0"
+BTN_COLOR   = "#2C7FC0"
+BTN_TEXT    = "#FFFFFF"
+BTN_HOVER   = "#2070B0"
+
+BTN_FONT_SIZE = 14
+BTN_H_FIXED   = 44
+BTN_W_RATIO   = 0.72
 
 
-def draw_cup(canvas, cx, cy, size):
-    """绘制可爱水杯"""
-    s = size
-    tw = s * 0.65
-    bw = s * 0.50
-    h  = s * 0.78
+class Bubble:
+    def __init__(self, w, h):
+        self.w = w; self.h = h
+        self.reset(init=True)
 
-    x0, x1 = cx - tw/2, cx + tw/2
-    x2, x3 = cx + bw/2, cx - bw/2
-    y0, y1 = cy, cy + h
+    def reset(self, init=False):
+        self.x            = random.uniform(0.05, 0.95)
+        self.y            = random.uniform(0.1, 0.95) if init else 1.05
+        self.r            = random.uniform(0.010, 0.022)
+        self.speed        = random.uniform(0.0006, 0.0015)
+        self.wobble       = random.uniform(0, math.pi * 2)
+        self.wobble_speed = random.uniform(0.02, 0.05)
 
-    # 杯身
-    canvas.create_polygon(x0,y0, x1,y0, x2,y1, x3,y1,
-        fill="#AEE4FF", outline="#5BB8F5", width=max(2,s*0.025))
+    def update(self):
+        self.y -= self.speed
+        self.wobble += self.wobble_speed
+        self.x += math.sin(self.wobble) * 0.002
+        self.x = max(0.03, min(0.97, self.x))
 
-    # 水体
-    m = s*0.04
-    wy = y0 + h*0.28
-    canvas.create_polygon(
-        x3+m, wy, x2-m, wy, x2-m, y1-m, x3+m, y1-m,
-        fill="#5BB8F5", outline="")
+    def is_gone(self):
+        return self.y < -0.05
 
-    # 水面波浪
-    wave_h = s*0.04
-    for off in [-s*0.07, 0, s*0.07]:
-        wx0 = x3+m + off*0.3
-        wx1 = x2-m + off*0.3
-        canvas.create_arc(wx0, wy-wave_h, wx1, wy+wave_h*0.5,
-            start=0, extent=180, style="arc",
-            outline="#AEE4FF", width=max(1,s*0.018))
 
-    # 把手
-    canvas.create_arc(x2-s*0.04, y0+h*0.22, x2+s*0.28, y0+h*0.65,
-        start=-90, extent=180, style="arc",
-        outline="#5BB8F5", width=max(2,s*0.04))
+def draw_cup(canvas, cx, cy, size, wave_offset=0):
+    s=size; tw=s*0.62; bw=s*0.48; h=s*0.80
+    x0,x1=cx-tw/2,cx+tw/2; x2,x3=cx+bw/2,cx-bw/2; y0,y1=cy,cy+h
 
-    # 气泡
-    for bx,by,br in [(cx+s*.07,cy+h*.55,s*.037),(cx-s*.05,cy+h*.66,s*.024),(cx,cy+h*.76,s*.019)]:
-        canvas.create_oval(bx-br,by-br,bx+br,by+br, fill="#FFFFFF", outline="#AEE4FF")
+    canvas.create_polygon(x0,y0,x1,y0,x2,y1,x3,y1,
+        fill=CUP_BODY,outline=CUP_OUTLINE,width=max(2,s*0.022),smooth=False,tags="cup")
 
-    # 杯口高光
-    canvas.create_line(x0,y0,x1,y0, fill="#FFFFFF", width=max(2,s*0.03), capstyle="round")
+    m=s*0.035; wy=y0+h*0.32; ratio=(wy-y0)/h
+    wl=x0+(x3-x0)*ratio+m; wr=x1+(x2-x1)*ratio-m
 
-    # 眼睛
-    ey = cy + h*0.42
-    er = s*0.055
-    for ex in [cx-s*.10, cx+s*.10]:
-        canvas.create_oval(ex-er,ey-er,ex+er,ey+er, fill="#2C5F8A", outline="")
-        canvas.create_oval(ex+er*.2,ey-er*.5,ex+er*.7,ey, fill="#FFFFFF", outline="")
+    canvas.create_polygon(wl,wy,wr,wy,x2-m,y1-m,x3+m,y1-m,
+        fill=CUP_WATER,outline="",smooth=False,tags="cup")
 
-    # 嘴巴
-    canvas.create_arc(cx-s*.12,ey+s*.06,cx+s*.12,ey+s*.20,
-        start=200, extent=140, style="arc", outline="#2C5F8A", width=max(1,s*0.022))
+    steps=20; pts=[]
+    for i in range(steps+1):
+        t=i/steps; pts.extend([wl+(wr-wl)*t, wy+math.sin(t*math.pi*2+wave_offset)*s*0.018])
+    pts.extend([wr,wy,wl,wy])
+    canvas.create_polygon(pts,fill=CUP_WATER,outline="",smooth=True,tags="cup")
 
-    # 脸颊
-    for ox,oy in [(-s*.19,s*.02),(s*.19,s*.02)]:
-        cr = s*0.065
-        canvas.create_oval(cx+ox-cr,ey+oy,cx+ox+cr,ey+oy+cr*1.2,
-            fill="#FFB3B3", outline="", stipple="gray50")
+    hl=[]
+    for i in range(steps+1):
+        t=i/steps; hl.extend([wl+(wr-wl)*t, wy+math.sin(t*math.pi*2+wave_offset)*s*0.018])
+    canvas.create_line(hl,fill="#FFFFFF",width=max(1.5,s*0.018),smooth=True,tags="cup")
 
-    # 水滴装饰
-    dx,dy,dr = cx-tw*.35, cy-s*.10, s*.06
-    canvas.create_oval(dx-dr,dy-dr*1.6,dx+dr,dy+dr*.4,
-        fill="#5BB8F5", outline="#AEE4FF")
+    sx=cx+tw*0.15; st=y0-s*0.26; sb=wy-s*0.02; sw=max(3,s*0.052)
+    canvas.create_rectangle(sx-sw/2,st,sx+sw/2,sb,fill=CUP_STRAW,outline="#FF7A8A",width=max(1,s*0.012),tags="cup")
+    canvas.create_oval(sx-sw/2,st-sw/2,sx+sw/2,st+sw/2,fill=CUP_STRAW,outline="#FF7A8A",tags="cup")
+
+    ey=cy+h*0.50; er=s*0.048
+    for ex in [cx-s*0.12, cx+s*0.06]:
+        canvas.create_oval(ex-er,ey-er,ex+er,ey+er,fill="#2C5F8A",outline="",tags="cup")
+        canvas.create_oval(ex+er*0.2,ey-er*0.55,ex+er*0.7,ey+er*0.05,fill="#FFFFFF",outline="",tags="cup")
+
+    canvas.create_arc(cx-s*0.13,ey+s*0.04,cx+s*0.13,ey+s*0.22,
+        start=200,extent=140,style="arc",outline="#2C5F8A",width=max(1.5,s*0.022),tags="cup")
+
+    for ox in [-s*0.19, s*0.14]:
+        cr=s*0.058
+        canvas.create_oval(cx+ox-cr,ey+s*0.02,cx+ox+cr,ey+s*0.02+cr*1.3,
+            fill="#FFB3B3",outline="",stipple="gray50",tags="cup")
+
+    canvas.create_line(x0+2,y0,x1-2,y0,fill="#FFFFFF",width=max(2,s*0.028),capstyle="round",tags="cup")
 
 
 class WaterReminder:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.withdraw()  # 先隐藏
-
+        self.root.withdraw()
         self.sw = self.root.winfo_screenwidth()
         self.sh = self.root.winfo_screenheight()
 
-        self.win       = None
-        self.frac      = INIT_FRAC
-        self.growing   = False
-        self.grow_job  = None
-        self.anim_job  = None
-        self.anim_tick = 0
+        self.win        = None
+        self.canvas     = None
+        self.grow_count = 0
+        self.growing    = False
+        self.grow_job   = None
+        self.anim_job   = None
+        self.anim_tick  = 0
+        self.wave_off   = 0.0
+        self.bubbles    = []
+        self.cur_w      = 0
+        self.cur_h      = 0
+        self.tgt_w      = 0
+        self.tgt_h      = 0
+        self.cur_x      = 12
+        self.cur_y      = 12
+        self.tgt_x      = 12
+        self.tgt_y      = 12
 
-        # 启动后立即弹出（方便测试）
+        # 防闪烁追踪
+        self._last_geo_w  = -1
+        self._last_geo_h  = -1
+        self._last_draw_w = -1
+        self._last_draw_h = -1
+
         self.root.after(1000, self.show)
+
+    def _init_wh(self):
+        s = int(min(self.sw, self.sh) * 0.28)
+        return s, s
+
+    def _target_wh(self, step):
+        iw, ih = self._init_wh()
+        frac = step / STEPS
+        w = int(iw + (self.sw - iw) * frac)
+        h = int(ih + (self.sh - ih) * frac)
+        return w, h
 
     def show(self):
         if self.win and self.win.winfo_exists():
             return
-        self.frac    = INIT_FRAC
-        self.growing = True
+        self.grow_count = 0
+        self.growing    = True
+        self.anim_tick  = 0
+        self.wave_off   = 0.0
+
+        iw, ih = self._init_wh()
+        self.cur_w = iw; self.cur_h = ih
+        self.tgt_w = iw; self.tgt_h = ih
+        self.cur_x = 12; self.cur_y = 12
+        self.tgt_x = 12; self.tgt_y = 12
 
         self.win = tk.Toplevel(self.root)
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
-        self.win.attributes("-alpha", 0.95)
+        self.win.attributes("-alpha", 0.0)
+        self.win.geometry(f"{iw}x{ih}+12+12")
         self.win.lift()
-        self.win.focus_force()
 
-        self.canvas = tk.Canvas(self.win, highlightthickness=0)
+        self.canvas = tk.Canvas(self.win, highlightthickness=0, bd=0)
         self.canvas.pack(fill="both", expand=True)
+        self.bubbles = [Bubble(iw, ih) for _ in range(6)]
 
-        self._refresh()
+        self._fade_in()
         self._schedule_grow()
         self._animate()
 
-    def _refresh(self):
-        if not (self.win and self.win.winfo_exists()):
-            return
-        self.canvas.delete("all")
-
-        takeover = self.frac >= 0.98
-        if takeover:
-            w, h = self.sw, self.sh
-            self.win.geometry(f"{w}x{h}+0+0")
-        else:
-            size = int(self.sw * self.frac)
-            w = h = size
-            self.win.geometry(f"{w}x{h}+10+10")
-
-        self.canvas.configure(width=w, height=h)
-
-        if takeover:
-            self.canvas.configure(bg="#0D2137")
-            cup_s = w * 0.30
-            draw_cup(self.canvas, w//2, h*0.08, cup_s)
-
-            # 闪烁文字
-            self.canvas.create_text(w//2, h*0.58,
-                text="当前屏幕已被霸占",
-                fill="#AEE4FF",
-                font=("Microsoft YaHei", max(16, w//10), "bold"),
-                tags="warn")
-            self.canvas.create_text(w//2, h*0.68,
-                text="请立即喝水！💧",
-                fill="#5BB8F5",
-                font=("Microsoft YaHei", max(14, w//13), "bold"))
-        else:
-            self.canvas.configure(bg="#F0F9FF")
-            # 标题
-            self.canvas.create_text(w//2, w*0.10,
-                text="💧 该喝水啦！",
-                fill="#2C5F8A",
-                font=("Microsoft YaHei", max(10, w//10), "bold"))
-            # 水杯
-            draw_cup(self.canvas, w//2, w*0.20, w*0.44)
-            # 提示
-            self.canvas.create_text(w//2, w*0.80,
-                text="不喝我会变大哦 👀",
-                fill="#5BB8F5",
-                font=("Microsoft YaHei", max(8, w//18)))
-
-        # 按钮
-        bw2 = max(90, w//3)
-        bh2 = max(36, w//10)
-        bx  = w//2
-        by  = (h if takeover else w) * 0.90
-
-        self._rounded_rect(bx-bw2//2, by-bh2//2, bx+bw2//2, by+bh2//2,
-            bh2//2, fill="#5BB8F5", outline="#3A9FE8",
-            width=2, tags="drinked")
-        self.canvas.create_text(bx, by,
-            text="✅  我喝了！",
-            fill="white",
-            font=("Microsoft YaHei", max(10, w//16), "bold"),
-            tags="drinked")
-
-        self.canvas.tag_bind("drinked", "<Button-1>", self._on_drink)
-        self.canvas.tag_bind("drinked", "<Enter>",
-            lambda e: self.canvas.itemconfig("drinked", fill="#3A9FE8"))
-        self.canvas.tag_bind("drinked", "<Leave>",
-            lambda e: self.canvas.itemconfig("drinked", fill="#5BB8F5"))
-
-    def _rounded_rect(self, x1,y1,x2,y2,r,**kw):
-        pts=[x1+r,y1, x2-r,y1, x2,y1, x2,y1+r,
-             x2,y2-r, x2,y2, x2-r,y2, x1+r,y2,
-             x1,y2, x1,y2-r, x1,y1+r, x1,y1]
-        kw["smooth"]=True
-        self.canvas.create_polygon(*pts,**kw)
-
     def _animate(self):
-        """水杯浮动 + 全屏时文字闪烁"""
         if not (self.win and self.win.winfo_exists()):
             return
         self.anim_tick += 1
+        self.wave_off  += 0.08
 
-        # 浮动（通过微调Y坐标）
-        if self.frac < 0.98:
-            offset = int(math.sin(math.radians(self.anim_tick * 4)) * 5)
-            self.win.geometry(f"+10+{10+offset}")
+        self.cur_w += (self.tgt_w - self.cur_w) * 0.12
+        self.cur_h += (self.tgt_h - self.cur_h) * 0.12
+        self.cur_x += (self.tgt_x - self.cur_x) * 0.12
+        self.cur_y += (self.tgt_y - self.cur_y) * 0.12
+        W = int(self.cur_w)
+        H = int(self.cur_h)
+        X = int(self.cur_x)
+        Y = int(self.cur_y)
 
-        # 全屏时文字闪烁
-        if self.frac >= 0.98:
-            alpha = 0.6 + 0.4 * abs(math.sin(math.radians(self.anim_tick * 3)))
-            color = self._lerp_color("#0D2137", "#AEE4FF", alpha)
+        # 仅在尺寸实际变化时调整窗口几何形状，避免闪屏
+        if W != self._last_geo_w or H != self._last_geo_h:
+            self._last_geo_w, self._last_geo_h = W, H
             try:
-                self.canvas.itemconfig("warn", fill=color)
+                self.win.geometry(f"{W}x{H}+{X}+{Y}")
             except Exception:
                 pass
 
-        self.anim_job = self.win.after(40, self._animate)
+        for b in self.bubbles:
+            b.w = W; b.h = H
+            b.update()
+            if b.is_gone(): b.reset()
 
-    def _lerp_color(self, c1, c2, t):
-        r1,g1,b1 = int(c1[1:3],16),int(c1[3:5],16),int(c1[5:7],16)
-        r2,g2,b2 = int(c2[1:3],16),int(c2[3:5],16),int(c2[5:7],16)
-        r=int(r1+(r2-r1)*t); g=int(g1+(g2-g1)*t); b=int(b1+(b2-b1)*t)
-        return f"#{r:02x}{g:02x}{b:02x}"
+        # 尺寸变化时或每3帧才做全量重绘，降低canvas刷新频率
+        if W != self._last_draw_w or H != self._last_draw_h or self.anim_tick % 3 == 0:
+            self._last_draw_w, self._last_draw_h = W, H
+            self._redraw(W, H)
+        self.anim_job = self.win.after(30, self._animate)
+
+    def _redraw(self, W, H):
+        if not (self.win and self.win.winfo_exists()):
+            return
+        c = self.canvas
+        c.configure(width=W, height=H)
+        c.delete("all")
+
+        c.create_rectangle(0, 0, W, H, fill=BG_COLOR, outline="")
+
+        for b in self.bubbles:
+            bx=b.x*W; by=b.y*H; br=b.r*min(W,H)
+            c.create_oval(bx-br,by-br,bx+br,by+br,
+                fill="#FFFFFF",outline=CUP_WATER,
+                width=max(1,br*0.25),stipple="gray75")
+
+        # ── 比例布局，随窗口大小自适应 ──
+        title_y  = int(H * 0.09)
+        sub_y    = int(H * 0.19)
+        cup_top  = int(H * 0.36)
+        btn_bot  = H - int(H * 0.09)
+        btn_cy   = btn_bot - BTN_H_FIXED // 2
+
+        # 水杯可用高度 = 按钮顶部 - 水杯顶部
+        btn_top  = btn_cy - BTN_H_FIXED // 2
+        cup_avail_h = btn_top - cup_top - 12   # 留12px间隙
+        cup_avail_w = W * 0.68
+        cup_size = min(cup_avail_h * 0.88, cup_avail_w)
+        cup_cy   = cup_top + cup_size * 0.10   # 水杯绘制起点
+
+        # 文案（字号用 H 基准，与坐标一致）
+        phase = self._get_phase()
+        if phase == "takeover":
+            main_text = "警告！水杯已占领屏幕！"
+            sub_text  = "必须喝水才能关闭！"
+            title_fs  = max(11, int(H * 0.030))
+        elif phase == "growing":
+            main_text = "水杯在长大"
+            sub_text  = "它会每隔5s更大一点"
+            title_fs  = max(13, int(H * 0.058))
+        else:
+            main_text = "该喝水啦"
+            sub_text  = "点一下，喝口水再继续"
+            title_fs  = max(13, int(H * 0.058))
+
+        sub_fs = max(9, int(H * 0.030))
+
+        c.create_text(W//2, title_y, text=main_text, fill=TEXT_TITLE,
+            font=("Microsoft YaHei", title_fs, "bold"), anchor="center")
+        c.create_text(W//2, sub_y, text=sub_text, fill=TEXT_SUB,
+            font=("Microsoft YaHei", sub_fs), anchor="center")
+
+        draw_cup(c, W//2, cup_cy, cup_size, self.wave_off)
+
+        # 按钮
+        btn_w = int(W * BTN_W_RATIO)
+        r     = BTN_H_FIXED // 2
+        x1=W//2-btn_w//2; y1=btn_cy-BTN_H_FIXED//2
+        x2=W//2+btn_w//2; y2=btn_cy+BTN_H_FIXED//2
+        pts=[x1+r,y1,x2-r,y1,x2,y1,x2,y1+r,
+             x2,y2-r,x2,y2,x2-r,y2,x1+r,y2,
+             x1,y2,x1,y2-r,x1,y1+r,x1,y1]
+        c.create_polygon(*pts, smooth=True, fill=BTN_COLOR, outline="", tags="btn_bg")
+        c.create_text(W//2, btn_cy, text="我喝啦", fill=BTN_TEXT,
+            font=("Microsoft YaHei", BTN_FONT_SIZE, "bold"), tags="btn_text")
+
+        c.tag_bind("btn_bg",   "<Button-1>", self._on_drink)
+        c.tag_bind("btn_text", "<Button-1>", self._on_drink)
+        c.tag_bind("btn_bg", "<Enter>",  lambda e: c.itemconfig("btn_bg", fill=BTN_HOVER))
+        c.tag_bind("btn_bg", "<Leave>",  lambda e: c.itemconfig("btn_bg", fill=BTN_COLOR))
+
+    def _get_phase(self):
+        if self.grow_count >= STEPS:  return "takeover"
+        elif self.grow_count >= 2:    return "growing"
+        else:                         return "init"
+
+    def _fade_in(self, alpha=0.0):
+        if not (self.win and self.win.winfo_exists()): return
+        alpha = min(alpha+0.06, 0.96)
+        self.win.attributes("-alpha", alpha)
+        if alpha < 0.96:
+            self.win.after(18, lambda: self._fade_in(alpha))
 
     def _schedule_grow(self):
         if self.grow_job:
@@ -230,54 +289,37 @@ class WaterReminder:
         self.grow_job = self.win.after(int(GROW_INTERVAL*1000), self._grow)
 
     def _grow(self):
-        if not self.growing:
-            return
-        if not (self.win and self.win.winfo_exists()):
-            return
-        self.frac = min(self.frac + GROW_STEP, 1.0)
-        self._refresh()
-        # 抖动
-        self._shake()
-        if self.frac < 1.0:
+        if not self.growing: return
+        if not (self.win and self.win.winfo_exists()): return
+        self.grow_count += 1
+        tw, th = self._target_wh(self.grow_count)
+        self.tgt_w = min(tw, self.sw)
+        self.tgt_h = min(th, self.sh)
+        # 位置从 (12,12) 逐步移到 (0,0)，铺满时对齐屏幕
+        frac = self.grow_count / STEPS
+        self.tgt_x = int(12 * (1 - frac))
+        self.tgt_y = int(12 * (1 - frac))
+        if self.grow_count < STEPS:
             self._schedule_grow()
-
-    def _shake(self, n=0):
-        if not (self.win and self.win.winfo_exists()):
-            return
-        if n >= 8:
-            return
-        dx = 8 if n % 2 == 0 else -8
-        try:
-            geo = self.win.geometry()
-            _, pos = geo.split("+", 1)
-            px, py = pos.split("+")
-            self.win.geometry(f"+{int(px)+dx}+{py}")
-        except: pass
-        self.win.after(35, lambda: self._shake(n+1))
 
     def _on_drink(self, e=None):
         self.growing = False
-        if self.grow_job:
-            try: self.win.after_cancel(self.grow_job)
-            except: pass
-        if self.anim_job:
-            try: self.win.after_cancel(self.anim_job)
-            except: pass
-        # 淡出
-        self._fade_out(0.95)
+        for job in [self.grow_job, self.anim_job]:
+            if job:
+                try: self.win.after_cancel(job)
+                except: pass
+        self.grow_job = None; self.anim_job = None
+        self._fade_out(0.96)
 
     def _fade_out(self, alpha):
         if not (self.win and self.win.winfo_exists()):
-            self._next_remind()
-            return
+            self._next_remind(); return
         alpha -= 0.07
         if alpha <= 0:
-            self.win.destroy()
-            self.win = None
-            self._next_remind()
-            return
+            self.win.destroy(); self.win = None
+            self._next_remind(); return
         self.win.attributes("-alpha", alpha)
-        self.win.after(20, lambda: self._fade_out(alpha))
+        self.win.after(18, lambda: self._fade_out(alpha))
 
     def _next_remind(self):
         self.root.after(int(REMIND_INTERVAL*1000), self.show)
