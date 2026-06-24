@@ -7,24 +7,23 @@ import math
 import random
 
 REMIND_INTERVAL = 60 * 60
-GROW_INTERVAL   = 5
-STEPS           = 5
+GROW_INTERVAL = 5
+STEPS = 5
 
-BG_COLOR    = "#E8F6FF"
-CUP_BODY    = "#AEE4FF"
-CUP_WATER   = "#5BB8F5"
+BG_COLOR = "#E8F6FF"
+CUP_BODY = "#AEE4FF"
+CUP_WATER = "#5BB8F5"
 CUP_OUTLINE = "#5BB8F5"
-CUP_STRAW   = "#FF9EAD"
-TEXT_TITLE  = "#2C7FC0"
-TEXT_SUB    = "#6BB8E0"
-BTN_COLOR   = "#2C7FC0"
-BTN_TEXT    = "#FFFFFF"
-BTN_HOVER   = "#2070B0"
+CUP_STRAW = "#FF9EAD"
+TEXT_TITLE = "#2C7FC0"
+TEXT_SUB = "#6BB8E0"
+BTN_COLOR = "#2C7FC0"
+BTN_TEXT = "#FFFFFF"
+BTN_HOVER = "#2070B0"
 
 BTN_FONT_SIZE = 14
-BTN_H_FIXED   = 44
-BTN_W_RATIO   = 0.72
-
+BTN_H_FIXED = 44
+BTN_W_RATIO = 0.72
 
 class Bubble:
     def __init__(self, w, h):
@@ -47,7 +46,6 @@ class Bubble:
 
     def is_gone(self):
         return self.y < -0.05
-
 
 def draw_cup(canvas, cx, cy, size, wave_offset=0):
     s=size; tw=s*0.62; bw=s*0.48; h=s*0.80
@@ -92,7 +90,6 @@ def draw_cup(canvas, cx, cy, size, wave_offset=0):
 
     canvas.create_line(x0+2,y0,x1-2,y0,fill="#FFFFFF",width=max(2,s*0.028),capstyle="round",tags="cup")
 
-
 class WaterReminder:
     def __init__(self):
         self.root = tk.Tk()
@@ -123,6 +120,8 @@ class WaterReminder:
         self._last_geo_h  = -1
         self._last_draw_w = -1
         self._last_draw_h = -1
+
+        self._remind_job  = None
 
         self.root.after(1000, self.show)
 
@@ -232,102 +231,5 @@ class WaterReminder:
         # 文案（字号用 H 基准，与坐标一致）
         phase = self._get_phase()
         if phase == "takeover":
-            main_text = "警告！水杯已占领屏幕！"
-            sub_text  = "必须喝水才能关闭！"
-            title_fs  = max(11, int(H * 0.030))
-        elif phase == "growing":
-            main_text = "水杯在长大"
-            sub_text  = "它会每隔5s更大一点"
-            title_fs  = max(13, int(H * 0.058))
-        else:
-            main_text = "该喝水啦"
-            sub_text  = "点一下，喝口水再继续"
-            title_fs  = max(13, int(H * 0.058))
-
-        sub_fs = max(9, int(H * 0.030))
-
-        c.create_text(W//2, title_y, text=main_text, fill=TEXT_TITLE,
-            font=("Microsoft YaHei", title_fs, "bold"), anchor="center")
-        c.create_text(W//2, sub_y, text=sub_text, fill=TEXT_SUB,
-            font=("Microsoft YaHei", sub_fs), anchor="center")
-
-        draw_cup(c, W//2, cup_cy, cup_size, self.wave_off)
-
-        # 按钮
-        btn_w = int(W * BTN_W_RATIO)
-        r     = BTN_H_FIXED // 2
-        x1=W//2-btn_w//2; y1=btn_cy-BTN_H_FIXED//2
-        x2=W//2+btn_w//2; y2=btn_cy+BTN_H_FIXED//2
-        pts=[x1+r,y1,x2-r,y1,x2,y1,x2,y1+r,
-             x2,y2-r,x2,y2,x2-r,y2,x1+r,y2,
-             x1,y2,x1,y2-r,x1,y1+r,x1,y1]
-        c.create_polygon(*pts, smooth=True, fill=BTN_COLOR, outline="", tags="btn_bg")
-        c.create_text(W//2, btn_cy, text="我喝啦", fill=BTN_TEXT,
-            font=("Microsoft YaHei", BTN_FONT_SIZE, "bold"), tags="btn_text")
-
-        c.tag_bind("btn_bg",   "<Button-1>", self._on_drink)
-        c.tag_bind("btn_text", "<Button-1>", self._on_drink)
-        c.tag_bind("btn_bg", "<Enter>",  lambda e: c.itemconfig("btn_bg", fill=BTN_HOVER))
-        c.tag_bind("btn_bg", "<Leave>",  lambda e: c.itemconfig("btn_bg", fill=BTN_COLOR))
-
-    def _get_phase(self):
-        if self.grow_count >= STEPS:  return "takeover"
-        elif self.grow_count >= 2:    return "growing"
-        else:                         return "init"
-
-    def _fade_in(self, alpha=0.0):
-        if not (self.win and self.win.winfo_exists()): return
-        alpha = min(alpha+0.06, 0.96)
-        self.win.attributes("-alpha", alpha)
-        if alpha < 0.96:
-            self.win.after(18, lambda: self._fade_in(alpha))
-
-    def _schedule_grow(self):
-        if self.grow_job:
-            try: self.win.after_cancel(self.grow_job)
-            except: pass
-        self.grow_job = self.win.after(int(GROW_INTERVAL*1000), self._grow)
-
-    def _grow(self):
-        if not self.growing: return
-        if not (self.win and self.win.winfo_exists()): return
-        self.grow_count += 1
-        tw, th = self._target_wh(self.grow_count)
-        self.tgt_w = min(tw, self.sw)
-        self.tgt_h = min(th, self.sh)
-        # 位置从 (12,12) 逐步移到 (0,0)，铺满时对齐屏幕
-        frac = self.grow_count / STEPS
-        self.tgt_x = int(12 * (1 - frac))
-        self.tgt_y = int(12 * (1 - frac))
-        if self.grow_count < STEPS:
-            self._schedule_grow()
-
-    def _on_drink(self, e=None):
-        self.growing = False
-        for job in [self.grow_job, self.anim_job]:
-            if job:
-                try: self.win.after_cancel(job)
-                except: pass
-        self.grow_job = None; self.anim_job = None
-        self._fade_out(0.96)
-
-    def _fade_out(self, alpha):
-        if not (self.win and self.win.winfo_exists()):
-            self._next_remind(); return
-        alpha -= 0.07
-        if alpha <= 0:
-            self.win.destroy(); self.win = None
-            self._next_remind(); return
-        self.win.attributes("-alpha", alpha)
-        self.win.after(18, lambda: self._fade_out(alpha))
-
-    def _next_remind(self):
-        self.root.after(int(REMIND_INTERVAL*1000), self.show)
-
-    def run(self):
-        self.root.mainloop()
-
-
-if __name__ == "__main__":
-    app = WaterReminder()
-    app.run()
+            main_text = "警告！
+...(truncated)...
